@@ -19,9 +19,11 @@ function fixture() {
     },
     async readBytes(target, signal, maxBytes) { signal?.throwIfAborted(); const value = files.get(target.displayPath); if (!value) throw new Error('not found'); const bytes = new TextEncoder().encode(value); if (bytes.length > maxBytes) throw new Error('FS_TOO_LARGE'); return bytes; },
   };
-  const registered = new Map(); const effects = []; let context; let activation;
-  const agent = { session: {}, ctx: { get: name => name === 'fs' ? fs : undefined } };
+  const registered = new Map(); const commands = new Map(); const effects = []; let context; let activation;
+  const followups = [];
+  const agent = { session: {}, ctx: { get: name => name === 'fs' ? fs : undefined }, followup: message => followups.push(message) };
   const ctx = {
+    commands: { register(command) { assert.match(command.name, /^[a-z][a-z0-9_-]*$/); assert.equal(commands.has(command.name), false); commands.set(command.name, command); return () => commands.delete(command.name); } },
     tools: { register(tool, options) { registered.set(tool.name, { tool, options }); return () => registered.delete(tool.name); }, get: name => registered.get(name)?.tool },
     workingDirectory: { get: () => cwd },
     subagents: {
@@ -33,7 +35,7 @@ function fixture() {
     effect(fn) { const cleanup = fn(); effects.push(cleanup); return cleanup; },
   };
   apply(ctx);
-  return { cwd, fs, ctx, agent, registered, effects, getContext: () => context, getActivation: () => activation };
+  return { cwd, fs, ctx, agent, followups, registered, commands, effects, getContext: () => context, getActivation: () => activation };
 }
 
 test('discovers for the exact caller and exposes bounded role catalog', async () => {
@@ -57,7 +59,7 @@ test('invalid and absent roles never start a child; effects unregister everythin
   await assert.rejects(run.execute({ id: 'claude:no', prompt: 'test', description: 'test' }, exec), /not found/);
   await assert.rejects(run.execute({ id: 'claude:reviewer', prompt: 'test', description: 'test', name: 'lead' }, exec), /Invalid/);
   assert.equal(f.getActivation(), undefined);
-  for (const dispose of f.effects.reverse()) dispose(); assert.equal(f.registered.size, 0); assert.equal(f.getContext(), undefined);
+  for (const dispose of f.effects.reverse()) dispose(); assert.equal(f.registered.size, 0); assert.equal(f.commands.size, 0); assert.equal(f.getContext(), undefined);
 });
 test('filesystem rejects escaping paths, symlink ancestors and oversized reads', async () => {
   const f = fixture(); const signal = new AbortController().signal;
@@ -75,6 +77,71 @@ test('directory listing detects symlinks even when provider reports their target
   const io = await createWorkspaceIO(f.fs, f.cwd, new AbortController().signal);
   const entries = await io.list('.claude/agents');
   assert.equal(entries[0].isSymbolicLink, true); assert.equal(entries[0].isDirectory, false);
+});
+
+test('slash list scans without a model step and displays roles and diagnostics', async () => {
+  const f = fixture(); const invocation = { agent: f.agent, rawInput: '', signal: new AbortController().signal };
+  assert.deepEqual([...f.commands.keys()].sort(), ['workspace-agent', 'workspace-agents']);
+  const command = f.commands.get('workspace-agents');
+  const result = await command.handler(invocation);
+  assert.equal(result.kind, 'success'); assert.match(result.text, /claude:reviewer/); assert.match(result.text, /Review code/); assert.match(result.text, /workspace-agent/);
+  assert.equal(f.getActivation(), undefined);
+  assert.equal((await command.handler({ ...invocation, rawInput: ' unexpected' })).kind, 'error');
+  f.fs.readBytes = async () => new TextEncoder().encode('not a valid agent');
+  const invalid = await command.handler(invocation);
+  assert.match(invalid.text, /未发现/); assert.match(invalid.text, /警告/);
+});
+test('slash run shares fresh standard delegation and preserves multiline tasks', async () => {
+  const f = fixture(); const command = f.commands.get('workspace-agent');
+  const invocation = { agent: f.agent, rawInput: ' claude:reviewer Review diff\nCheck tests', signal: new AbortController().signal };
+  const result = await command.handler(invocation);
+  assert.equal(result.kind, 'success'); assert.match(result.text, /review-check/);
+  assert.equal(f.getActivation().parent, f.agent); assert.equal(f.getActivation().agentPreset, 'standard');
+  assert.match(f.getActivation().prompt[0].text, /Review diff\nCheck tests/);
+  assert.equal(f.followups.length, 0);
+});
+test('only explicit --main queues role instructions and task on the receiving agent', async () => {
+  const f = fixture(); const command = f.commands.get('workspace-agent');
+  const result = await command.handler({ agent: f.agent, rawInput: ' --main claude:reviewer Review diff\nCheck tests', signal: new AbortController().signal });
+  assert.equal(result.kind, 'success'); assert.match(result.text, /未创建子 agent/);
+  assert.equal(f.getActivation(), undefined); assert.equal(f.followups.length, 1);
+  const message = f.followups[0];
+  assert.equal(message.role, 'user'); assert.deepEqual(message.source, { kind: 'user' }); assert.ok(message.id);
+  assert.match(message.content[0].text, /Check correctness/); assert.match(message.content[0].text, /Review diff\nCheck tests/);
+  assert.match(message.content[0].text, /不要把本次任务转交给子 agent/);
+});
+test('default dispatch never falls back to current agent on spawn failure or task prose', async () => {
+  const f = fixture(); const command = f.commands.get('workspace-agent');
+  f.ctx.subagents.startActivation = async () => { throw new Error('spawn unavailable'); };
+  await assert.rejects(command.handler({ agent: f.agent, rawInput: ' claude:reviewer 让当前主agent执行', signal: new AbortController().signal }), /spawn unavailable/);
+  assert.equal(f.followups.length, 0);
+});
+test('--main rejects missing tasks, missing roles, oversize and cancellation without delivery', async () => {
+  const f = fixture(); const command = f.commands.get('workspace-agent'); const signal = new AbortController().signal;
+  assert.equal((await command.handler({ agent: f.agent, rawInput: ' --main claude:reviewer', signal })).kind, 'error');
+  await assert.rejects(command.handler({ agent: f.agent, rawInput: ' --main claude:no task', signal }), /not found/);
+  await assert.rejects(command.handler({ agent: f.agent, rawInput: ' --main claude:reviewer ' + 'x'.repeat(65537), signal }), /too long/);
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(command.handler({ agent: f.agent, rawInput: ' --main claude:reviewer task', signal: controller.signal }), /abort/i);
+  assert.equal(f.followups.length, 0); assert.equal(f.getActivation(), undefined);
+});
+test('slash run rejects missing tasks, unknown roles, excessive tasks and cancellation', async () => {
+  const f = fixture(); const command = f.commands.get('workspace-agent');
+  const invocation = { agent: f.agent, rawInput: ' claude:reviewer', signal: new AbortController().signal };
+  assert.equal((await command.handler(invocation)).kind, 'error');
+  await assert.rejects(command.handler({ ...invocation, rawInput: ' claude:no task' }), /not found/);
+  await assert.rejects(command.handler({ ...invocation, rawInput: ' claude:reviewer ' + 'x'.repeat(65537) }), /too long/);
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(command.handler({ ...invocation, rawInput: ' claude:reviewer task', signal: controller.signal }), /abort/i);
+  assert.equal(f.getActivation(), undefined);
+});
+test('slash discovery uses the receiving agent filesystem, not a shared catalog', async () => {
+  const f = fixture(); const command = f.commands.get('workspace-agents'); const signal = new AbortController().signal;
+  await command.handler({ agent: f.agent, rawInput: '', signal });
+  const otherFs = { ...f.fs, listDir: async () => [] };
+  const other = { session: {}, ctx: { get: name => name === 'fs' ? otherFs : undefined } };
+  const result = await command.handler({ agent: other, rawInput: '', signal });
+  assert.match(result.text, /未发现/); assert.doesNotMatch(result.text, /claude:reviewer/);
 });
 
 test('cancellation propagates instead of becoming discovery diagnostics', async () => {

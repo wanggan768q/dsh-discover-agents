@@ -2,6 +2,8 @@
 
 把已有 Claude/Codex 角色指令复用为 DSH 子 agent。无需复制角色文件，也无需启动外部 CLI。
 
+当前版本：`1.1.0`。新增 `/workspace-agents` 和 `/workspace-agent`，指定角色默认创建标准模式 subagent；显式 `--main` 才交给当前 agent。
+
 ## 安装到 DSH
 
 仓库：[wanggan768q/dsh-discover-agents](https://github.com/wanggan768q/dsh-discover-agents)。本插件未发布到 npm，不要只输入 `@local/dsh-discover-agents` 作为下载地址。
@@ -66,6 +68,7 @@ macOS / Linux 的示例路径为 `/home/your-name/plugins/dsh-discover-agents`�
 ### 更新与故障排查
 
 - **GitHub 安装更新：**`#main` 不会自动跟随远程新提交。对这种分支安装，先在 DSH 插件页卸载本插件，再使用同一 Git 地址重新安装、启用并重启。不要把「刷新插件列表」当作拉取 Git 更新。卸载操作请确认包名为 `@local/dsh-discover-agents`。
+- **DSH 的更新发现限制：**提高插件的 `package.json.version` 或发布 Git 标签，不会让 `#main` / 标签安装自动出现更新入口。当前 DSH 仅允许完整 40 位 commit SHA 固定的 Git 安装走 Git 更新流程，新版本信息需要插件市场索引提供；Git 仓库本身不提供 DSH 可读取的版本列表。本仓库未发布到 npm，也未接入插件市场索引，因此目前仍需按上一条手动重新安装。版本标签 `v1.1.0` 用于明确发布版本，不等于 DSH 自动更新源。
 - **本地目录安装更新：**在插件克隆目录执行 `git pull --ff-only` 和 `pnpm install --frozen-lockfile --ignore-scripts`，然后重启 DSH。若有自己的未提交改动，先保存并处理冲突，不要直接覆盖。
 - **无法访问 GitHub：**查看 **安装详情** 中的 Git / pnpm 报错，检查 DSH 所在机器的 GitHub 网络、代理和 Git 配置。npm 镜像只能帮助下载注册表依赖，不能代替 GitHub 仓库下载。也可从 GitHub **Code → Download ZIP** 下载解压，安装依赖后按方式二填写解压目录的绝对路径。
 - **版本不兼容：**按 DSH 的诊断选择匹配版本，不要为了安装直接跳过兼容性检查。
@@ -93,6 +96,28 @@ macOS / Linux 的示例路径为 `/home/your-name/plugins/dsh-discover-agents`�
 - `.codex/agents` 下的 TOML 角色文件：兼容常见独立角色约定。注册角色优先，具体诊断由发现工具返回。
 
 不扫描整个仓库、不读取用户主目录的全局配置，不向上查找父目录。切换工作目录后，下个模型步骤及工具调用读取新目录。配置文件只读。
+
+## 输入框 `/` 命令
+
+插件启用并加载新版 Host 代码后，在 DSH 输入框输入 `/`，可搜索以下两个命令：
+
+- `/workspace-agents`：即时扫描当前会话的工作目录，显示 Claude/Codex 角色 ID、名称、用途、定义路径及加载诊断。无需先发送模型消息。
+- `/workspace-agent <角色ID> <完整独立任务>`：直接创建指定角色的 DSH 标准模式 subagent，不由主 agent 判断是否委派。创建失败时报错，不自动回退到主 agent。
+- `/workspace-agent --main <角色ID> <任务>`：用户显式要求当前 agent 执行。将角色指令和任务作为持久化 follow-up 提交给当前会话，不创建 subagent、不切换当前 preset，也不永久改变当前角色。
+
+例如：
+
+```text
+/workspace-agents
+/workspace-agent claude:reviewer 检查本次 git diff，重点检查逻辑错误和缺失测试，返回具体位置。
+/workspace-agent --main claude:reviewer 由当前 agent 检查本次 git diff。
+```
+
+路由只认命令中的显式 `--main` 选项，不分析任务正文中的自然语言来自动改路由。即使任务正文包含“主 agent”等字样，不带 `--main` 时仍创建 subagent。`--main` 会要求当前模型直接执行；这是任务指令，不是禁用该会话全部子 agent 工具的权限规则。当前 agent 正在执行其他任务时，follow-up 在后续独立回合处理，不打断当前回合。
+
+当前 `/` 补全展示这两个固定入口，不将每个发现的角色注册成单独命令，也不补全角色 ID。先执行列表命令，再复制角色 ID 调用。列表及诊断是界面结果，不自动进入模型对话；不带 `--main` 的调用命令会明确启动子 agent，并沿用与模型工具相同的扫描和委派逻辑。子会话不继承当前对话，需要提供完整独立任务。
+
+旧版插件只有模型工具，没有 slash 命令；因此旧版在 `/` 菜单中看不到 agent 入口并不代表发现失败。更新插件后需重启 DSH 加载新版 Host 代码，单独刷新网页不保证重新加载插件。若仍无入口，请检查插件是否启用、是否更新到包含本节功能的版本、是否存在激活错误。
 
 ## 执行与边界
 
