@@ -1,5 +1,5 @@
 {
-  "name": "@local/dsh-discover-agents",
+  "name": "dsh-discover-agents",
   "version": "1.2.0",
   "description": "Discover workspace Claude and Codex agents and delegate tasks through DSH.",
   "private": true,

@@ -6,7 +6,7 @@
 
 ## 安装到 DSH
 
-仓库：[wanggan768q/dsh-discover-agents](https://github.com/wanggan768q/dsh-discover-agents)。本插件未发布到 npm，不要只输入 `@local/dsh-discover-agents` 作为下载地址。
+仓库：[wanggan768q/dsh-discover-agents](https://github.com/wanggan768q/dsh-discover-agents)。本插件未发布到 npm，不要只输入 `dsh-discover-agents` 作为下载地址。
 
 已验证运行目标为 DSH `0.2.2-rc.5`；清单允许 `>=0.2.2-rc.5 <0.3.0`，其他版本未逐一验证。需要 DSH 的受管 profile、插件管理器和标准模式的 `spawn` 子 agent 后端。安装会在当前 profile 中运行插件代码，影响使用该 profile 的所有会话；请只安装你信任的代码。
 
@@ -23,7 +23,7 @@
    ```
 
 4. 点击 **安装**，等待仓库下载、依赖安装和插件检查完成。DSH 会调用自己的包管理器，不需要手动修改 DSH profile 的配置文件。
-5. 安装完成后点击 **立即启用**。若直接关闭了对话框，在 **已安装插件** 中找到 **工作区 Agent 发现**，打开其开关。详情中的包名应为 `@local/dsh-discover-agents`。
+5. 安装完成后点击 **立即启用**。若直接关闭了对话框，在 **已安装插件** 中找到 **工作区 Agent 发现**，打开其开关。详情中的包名应为 `dsh-discover-agents`。
 6. 若 DSH 提示需要重启，重启 DSH 进程后再使用。更新已有插件代码后，也建议重启并新建会话验证；刷新浏览器不等于重启 Host。
 
 `#main` 安装远程 `main` 分支当前版本，不包含维护者尚未提交并 push 的本地改动。需要可重复安装时，将 `main` 替换成 GitHub 提交页显示的完整 40 位 commit SHA。
@@ -67,7 +67,7 @@ macOS / Linux 的示例路径为 `/home/your-name/plugins/dsh-discover-agents`�
 
 ### 更新与故障排查
 
-- **GitHub 安装更新：**`#main` 不会自动跟随远程新提交。对这种分支安装，先在 DSH 插件页卸载本插件，再使用同一 Git 地址重新安装、启用并重启。不要把「刷新插件列表」当作拉取 Git 更新。卸载操作请确认包名为 `@local/dsh-discover-agents`。
+- **GitHub 安装更新：**`#main` 不会自动跟随远程新提交。对这种分支安装，先在 DSH 插件页卸载本插件，再使用同一 Git 地址重新安装、启用并重启。不要把「刷新插件列表」当作拉取 Git 更新。卸载操作请确认包名为 `dsh-discover-agents`。
 - **DSH 的更新发现限制：**提高插件的 `package.json.version` 或发布 Git 标签，不会让 `#main` / 标签安装自动出现更新入口。当前 DSH 仅允许完整 40 位 commit SHA 固定的 Git 安装走 Git 更新流程，新版本信息需要插件市场索引提供；Git 仓库本身不提供 DSH 可读取的版本列表。本仓库未发布到 npm，也未接入插件市场索引，因此目前仍需按上一条手动重新安装。版本标签 `v1.1.0` 用于明确发布版本，不等于 DSH 自动更新源。
 - **本地目录安装更新：**在插件克隆目录执行 `git pull --ff-only` 和 `pnpm install --frozen-lockfile --ignore-scripts`，然后重启 DSH。若有自己的未提交改动，先保存并处理冲突，不要直接覆盖。
 - **无法访问 GitHub：**查看 **安装详情** 中的 Git / pnpm 报错，检查 DSH 所在机器的 GitHub 网络、代理和 Git 配置。npm 镜像只能帮助下载注册表依赖，不能代替 GitHub 仓库下载。也可从 GitHub **Code → Download ZIP** 下载解压，安装依赖后按方式二填写解压目录的绝对路径。

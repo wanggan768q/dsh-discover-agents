@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: '@local/dsh-discover-agents',
+  id: 'dsh-discover-agents',
   factory() {
     // Pure source logic is kept in this artifact so Git installs need no build step.
     function createSource({ load, execute, hint }) {
