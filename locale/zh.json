@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "工作区 Agent 发现",
+    "description": "自动发现当前工作区 .claude/agents 的 Markdown 角色、.codex/config.toml 注册的角色和 .codex/agents 的 TOML 角色。标准模式可列出定义并交给 DSH 子 agent 执行，完成后自动通知。不会启动外部 CLI，也不会导入外部模型名、hooks 或工具权限。"
+  }
+}

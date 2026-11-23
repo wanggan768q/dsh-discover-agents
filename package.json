@@ -1,0 +1,14 @@
+{
+  "name": "@local/dsh-discover-agents",
+  "version": "1.0.0",
+  "description": "Discover workspace Claude and Codex agents and delegate tasks through DSH.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "dsh": ">=0.2.2-rc.5 <0.3.0" },
+  "exports": { ".": "./index.js", "./locale/*.json": "./locale/*.json", "./icon": "./icon.svg" },
+  "files": ["index.js", "discovery.js", "filesystem.js", "cordis.patch.yml", "locale", "icon.svg", "README.md"],
+  "scripts": { "test": "node --test test/*.test.js" },
+  "dependencies": { "yaml": "^2.8.1", "smol-toml": "^1.4.2" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

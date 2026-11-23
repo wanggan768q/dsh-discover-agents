@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Workspace agent discovery",
+    "description": "Discover workspace Claude Markdown agents and Codex TOML agents. List definitions and delegate tasks to fresh DSH Standard-mode children with automatic completion notices. Does not launch external CLIs or import external model names, hooks, or tool permissions."
+  }
+}
