@@ -37,6 +37,8 @@ function yamlMetadata(text) {
 /**
  * Discover only workspace Markdown beneath .claude/agents, .codex/config.toml and
  * .codex/agents/*.toml. io paths are cwd-relative, slash-separated strings.
+ * io.list(path, { maxEntries }) must bound its extra per-entry metadata work;
+ * an array with truncated=true indicates that more entries were omitted.
  * io MUST enforce cwd containment and lstat every path component (including
  * .claude/.codex), reject observed symlinks, and bound reads before allocation.
  * The DSH filesystem API does not guarantee race-free no-follow reads.
@@ -67,14 +69,19 @@ export async function discoverAgents(io, cwd, options = {}) {
       limit(`Discovery directory limit reached (${maxDirectories})`);
       return [];
     }
+    if (entryCount >= maxEntries) {
+      limit(`Discovery entry limit reached (${maxEntries})`);
+      return [];
+    }
     directoryCount++;
     let entries;
-    try { entries = await io.list(path); }
+    try { entries = await io.list(path, { maxEntries: maxEntries - entryCount }); }
     catch (error) {
       if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
       entries = [];
     }
     if (!Array.isArray(entries)) throw new TypeError(`io.list(${path}) must return an array`);
+    if (entries.truncated) limit(`Discovery entry limit reached (${maxEntries})`);
     const safe = [];
     for (const entry of entries) {
       if (entryCount++ >= maxEntries) {

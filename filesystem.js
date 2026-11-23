@@ -20,19 +20,33 @@ export async function createWorkspaceIO(fs, cwd, signal, maxBytes = 262144) {
     return target;
   }
   return {
-    async list(input) {
+    async list(input, { maxEntries = 10000 } = {}) {
+      if (!Number.isSafeInteger(maxEntries) || maxEntries < 0) throw new TypeError('maxEntries must be a non-negative safe integer');
+      signal?.throwIfAborted();
+      if (maxEntries === 0) return [];
       const target = await targetFor(input);
       const info = await fs.stat(target, signal);
       if (!info) return [];
-      if (info.type !== 'directory') throw new Error(`Not an agent directory: ${input}`);
+      if (info.type !== 'directory') {
+        throw Object.assign(new Error(`Not an agent directory: ${input}`), { code: 'ENOTDIR' });
+      }
+      // listDir itself has no bounded/paged API. Bound our extra lstat calls
+      // before starting them, and keep at most one metadata request in flight.
       const entries = await fs.listDir(target, signal);
-      return Promise.all(entries.map(async entry => {
+      const result = [];
+      for (let index = 0; index < Math.min(entries.length, maxEntries); index++) {
+        signal?.throwIfAborted();
+        const entry = entries[index];
         const info = await fs.lstat(path.join(cwd, input, entry.name), { cwd }, signal);
-        return {
+        result.push({
           name: entry.name, isFile: info?.type === 'file',
           isDirectory: info?.type === 'directory', isSymbolicLink: info?.type === 'symlink',
-        };
-      }));
+        });
+      }
+      signal?.throwIfAborted();
+      // Discovery consumes this flag without including it in tool output.
+      if (entries.length > maxEntries) result.truncated = true;
+      return result;
     },
     async read(input) {
       const target = await targetFor(input);
