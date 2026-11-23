@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { discoverAgents } from './discovery.js';
 import { createWorkspaceIO } from './filesystem.js';
+import { installCatalogRemote } from './remote.js';
 
 export const name = 'discover-workspace-agents';
 export const inject = ['tools', 'subagents', 'systemPrompt', 'workingDirectory', 'commands'];
@@ -144,6 +145,7 @@ export function apply(ctx) {
         + (value.warnings?.length ? '\n' + value.warnings.map(warning => `警告：${warning}`).join('\n') : '') };
     },
   }));
+  installCatalogRemote(ctx, list);
   ctx.effect(() => ctx.tools.register(list));
   ctx.effect(() => ctx.tools.register(run, {
     when: async ({ agent, signal }) => {

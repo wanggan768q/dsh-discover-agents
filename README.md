@@ -99,7 +99,18 @@ macOS / Linux 的示例路径为 `/home/your-name/plugins/dsh-discover-agents`�
 
 ## 输入框 `/` 命令
 
-插件启用并加载新版 Host 代码后，在 DSH 输入框输入 `/`，可搜索以下两个命令：
+插件启用并加载新版 Host 和 Client 代码后，在 DSH 输入框输入 `/`，菜单新增 **local-agents** 分类。每个角色直接显示文件名（不含扩展名）及对应描述。例如 `.claude/agents/review.md` 显示为 **review**，描述来自 YAML 的 `description`，不使用 `name` 替换文件名。
+
+选择 **review** 后输入完整任务并发送，插件直接创建该角色的标准模式 subagent。选择菜单项只认领输入框，不立即执行。也可以直接输入：
+
+```text
+/review 检查本次 git diff
+/review --main 由当前 agent 检查本次 git diff
+```
+
+菜单显示文件名，选择后输入框使用带来源的唯一 token，例如 `/local-agent:claude%3Areview`，以便保存草稿后仍准确恢复同一角色。无冲突且名称符合命令格式时，可以直接输入 `/review`；同名角色（包括 Claude/Codex 或嵌套目录重名）或与 DSH 命令重名时，没有短名入口，请从菜单选择。角色目录变动及会话工作目录变动，在下一次菜单查询时重新读取；提交时 Host 再次验证角色。仅在接收普通会话的输入框提供分类，不在远程子 agent 输入框混用主会话目录。
+
+保留以下固定命令用于诊断和兼容：
 
 - `/workspace-agents`：即时扫描当前会话的工作目录，显示 Claude/Codex 角色 ID、名称、用途、定义路径及加载诊断。无需先发送模型消息。
 - `/workspace-agent <角色ID> <完整独立任务>`：直接创建指定角色的 DSH 标准模式 subagent，不由主 agent 判断是否委派。创建失败时报错，不自动回退到主 agent。
@@ -115,7 +126,7 @@ macOS / Linux 的示例路径为 `/home/your-name/plugins/dsh-discover-agents`�
 
 路由只认命令中的显式 `--main` 选项，不分析任务正文中的自然语言来自动改路由。即使任务正文包含“主 agent”等字样，不带 `--main` 时仍创建 subagent。`--main` 会要求当前模型直接执行；这是任务指令，不是禁用该会话全部子 agent 工具的权限规则。当前 agent 正在执行其他任务时，follow-up 在后续独立回合处理，不打断当前回合。
 
-当前 `/` 补全展示这两个固定入口，不将每个发现的角色注册成单独命令，也不补全角色 ID。先执行列表命令，再复制角色 ID 调用。列表及诊断是界面结果，不自动进入模型对话；不带 `--main` 的调用命令会明确启动子 agent，并沿用与模型工具相同的扫描和委派逻辑。子会话不继承当前对话，需要提供完整独立任务。
+菜单角色和固定命令复用同一 Host 扫描及委派逻辑。不带 `--main` 的调用创建 subagent，失败会保留输入，不自动交给主 agent。列表及诊断是界面结果，不自动进入模型对话。子会话不继承当前对话，需要提供完整独立任务。目前不支持在角色命令中携带附件；请在任务正文中提供文件路径和必要信息。
 
 旧版插件只有模型工具，没有 slash 命令；因此旧版在 `/` 菜单中看不到 agent 入口并不代表发现失败。更新插件后需重启 DSH 加载新版 Host 代码，单独刷新网页不保证重新加载插件。若仍无入口，请检查插件是否启用、是否更新到包含本节功能的版本、是否存在激活错误。
 
@@ -136,6 +147,6 @@ pnpm install --ignore-scripts
 pnpm test
 ```
 
-运行目标：DSH `0.2.2-rc.5`。依赖仅为 `yaml` 和 `smol-toml`，无安装脚本或构建步骤。测试包括格式、扫描边界、权限错误、子 agent 委派、生命周期清理及文件系统适配。
+运行目标：DSH `0.2.2-rc.5`。格式依赖为 `yaml` 和 `smol-toml`，Host RPC 使用 DSH 的 `@deepseek-ai/dsh-typert-protocol` peer 依赖。Client 是可直接加载的 JavaScript artifact，无安装脚本或构建步骤。测试覆盖格式、扫描边界、权限错误、子 agent 委派、动态菜单、名称冲突、claim 生命周期及真实 Cordis 服务注册。
 
 本地图标为原创 SVG；详情采用本 README，无额外预览图。

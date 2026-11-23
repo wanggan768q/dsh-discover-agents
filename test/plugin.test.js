@@ -23,6 +23,7 @@ function fixture() {
   const followups = [];
   const agent = { session: {}, ctx: { get: name => name === 'fs' ? fs : undefined }, followup: message => followups.push(message) };
   const ctx = {
+    plugin() {},
     commands: { register(command) { assert.match(command.name, /^[a-z][a-z0-9_-]*$/); assert.equal(commands.has(command.name), false); commands.set(command.name, command); return () => commands.delete(command.name); } },
     tools: { register(tool, options) { registered.set(tool.name, { tool, options }); return () => registered.delete(tool.name); }, get: name => registered.get(name)?.tool },
     workingDirectory: { get: () => cwd },
