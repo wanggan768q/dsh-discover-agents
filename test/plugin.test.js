@@ -4,18 +4,25 @@ import path from 'node:path';
 import { apply } from '../index.js';
 import { createWorkspaceIO } from '../filesystem.js';
 
-function fixture() {
+function fixture(extraFiles = []) {
   const cwd = path.resolve('/workspace');
-  const files = new Map([[path.join(cwd, '.claude/agents/reviewer.md'), '---\nname: reviewer\ndescription: Review code\n---\nCheck correctness.']]);
+  const files = new Map([[path.join(cwd, '.claude/agents/reviewer.md'), '---\nname: reviewer\ndescription: Review code\n---\nCheck correctness.'],
+    ...extraFiles.map(([name, content]) => [path.join(cwd, name), content])]);
+  const isDirectory = input => [...files.keys()].some(file => file.startsWith(input + path.sep));
   const fs = {
     async resolve(input, opts = {}) { return { displayPath: path.resolve(opts.cwd || cwd, input), targetKey: input }; },
     contains(root, target) { const rel = path.relative(root.displayPath, target.displayPath); return !rel.startsWith('..') && !path.isAbsolute(rel); },
     async lstat(input) { return files.has(input) ? { type: 'file' } : { type: 'directory' }; },
-    async stat(target) { if (files.has(target.displayPath)) return { type: 'file' }; if (target.displayPath.includes('.codex')) return undefined; return { type: 'directory' }; },
+    async stat(target) { if (files.has(target.displayPath)) return { type: 'file' }; return isDirectory(target.displayPath) ? { type: 'directory' } : undefined; },
     async listDir(target) {
-      if (target.displayPath === path.join(cwd, '.claude')) return [{ name: 'agents', type: 'directory' }];
-      if (target.displayPath === path.join(cwd, '.claude/agents')) return [{ name: 'reviewer.md', type: 'file' }];
-      return [];
+      const entries = new Map();
+      for (const file of files.keys()) {
+        const relative = path.relative(target.displayPath, file);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) continue;
+        const [name, ...rest] = relative.split(path.sep);
+        entries.set(name, { name, type: rest.length ? 'directory' : 'file' });
+      }
+      return [...entries.values()];
     },
     async readBytes(target, signal, maxBytes) { signal?.throwIfAborted(); const value = files.get(target.displayPath); if (!value) throw new Error('not found'); const bytes = new TextEncoder().encode(value); if (bytes.length > maxBytes) throw new Error('FS_TOO_LARGE'); return bytes; },
   };
@@ -136,6 +143,82 @@ test('slash run rejects missing tasks, unknown roles, excessive tasks and cancel
   await assert.rejects(command.handler({ ...invocation, rawInput: ' claude:reviewer task', signal: controller.signal }), /abort/i);
   assert.equal(f.getActivation(), undefined);
 });
+test('slash JSON IDs dispatch actual scanned Claude and Codex whitespace roles in both modes', async () => {
+  const roles = [
+    ['claude:review team', 'Claude spaced instructions'],
+    ['claude:nested/ quote " team ', 'Claude quoted instructions'],
+    ['codex:review team', 'Codex registered instructions'],
+    ['codex: edge\u00a0team ', 'Codex compatibility instructions'],
+  ];
+  const files = [
+    ['.claude/agents/review team.md', '---\nname: team\ndescription: Team review\n---\nClaude spaced instructions'],
+    ['.claude/agents/nested/ quote " team .md', '---\nname: quoted\ndescription: Quoted review\n---\nClaude quoted instructions'],
+    ['.codex/config.toml', '[agents."review team"]\ndescription = "Team review"\nconfig_file = "agents/team.toml"'],
+    ['.codex/agents/team.toml', 'developer_instructions = "Codex registered instructions"'],
+    ['.codex/agents/compat.toml', 'name = " edge\u00a0team "\ndescription = "Compatibility review"\ndeveloper_instructions = "Codex compatibility instructions"'],
+  ];
+  for (const main of [false, true]) for (const [id, instructions] of roles) {
+    const f = fixture(files); const signal = new AbortController().signal;
+    const catalog = await f.registered.get('list_workspace_agents').tool.execute({}, { agent: f.agent, signal });
+    assert.ok(catalog.agents.some(role => role.id === id), `scan preserves ${JSON.stringify(id)}`);
+    const prompt = 'Review diff\n  Keep indentation\nCheck tests';
+    const result = await f.commands.get('workspace-agent').handler({ agent: f.agent, signal,
+      rawInput: `${main ? ' --main ' : ' '}${JSON.stringify(id)} ${prompt}` });
+    assert.equal(result.kind, 'success'); assert.ok(result.text.includes(id));
+    const delivered = main ? f.followups[0].content[0].text : f.getActivation().prompt[0].text;
+    assert.ok(delivered.includes(instructions)); assert.ok(delivered.endsWith(prompt));
+    assert.equal(f.followups.length, main ? 1 : 0);
+    assert.equal(f.getActivation() === undefined, main);
+    if (!main) assert.equal(f.getActivation().agentPreset, 'standard');
+  }
+});
+
+test('slash ID parsing never guesses the longest catalog prefix', async () => {
+  for (const main of [false, true]) for (const quoted of [false, true]) {
+    const f = fixture([['.claude/agents/reviewer team.md', '---\nname: team\ndescription: Team review\n---\nWrong longer role.']]);
+    const id = quoted ? JSON.stringify('claude:reviewer') : 'claude:reviewer';
+    const result = await f.commands.get('workspace-agent').handler({ agent: f.agent,
+      signal: new AbortController().signal, rawInput: `${main ? '--main ' : ''}${id} team task\nSecond line` });
+    assert.equal(result.kind, 'success');
+    const delivered = main ? f.followups[0].content[0].text : f.getActivation().prompt[0].text;
+    assert.ok(delivered.includes('Check correctness.')); assert.ok(delivered.endsWith('team task\nSecond line'));
+    assert.ok(!delivered.includes('Wrong longer role.'));
+  }
+});
+
+test('slash quoted IDs decode JSON escapes exactly, including quotes and backslashes', async () => {
+  const signal = new AbortController().signal;
+  for (const main of [false, true]) {
+    const f = fixture(); const command = f.commands.get('workspace-agent');
+    const escapedId = '"claude:\\u0072eviewer"';
+    assert.equal((await command.handler({ agent: f.agent, signal,
+      rawInput: `${main ? '--main ' : ''}${escapedId} task` })).kind, 'success');
+    const missing = fixture(); const missingCommand = missing.commands.get('workspace-agent');
+    for (const id of ['claude:reviewer\\branch', 'claude:reviewer"branch', 'claude:reviewer\\" team']) {
+      await assert.rejects(missingCommand.handler({ agent: missing.agent, signal,
+        rawInput: `${main ? '--main ' : ''}${JSON.stringify(id)} task` }),
+      error => error.message.includes(`Workspace agent not found: ${id}`));
+    }
+    assert.equal(missing.getActivation(), undefined); assert.equal(missing.followups.length, 0);
+  }
+});
+
+test('malformed or taskless JSON IDs return usage without scanning or dispatching', async () => {
+  const inputs = [
+    '', '   ', '"" task', '"   " task', '"claude:reviewer"', '"claude:reviewer" \n\t',
+    '"claude:reviewer task', '"claude:reviewer\\" task', '"claude:reviewer"task',
+    '"claude:reviewer"suffix task', '"claude:\\qreviewer" task', '"claude:\\u00ZZreviewer" task',
+    '"claude:reviewer\nteam" task', '"claude:reviewer\tteam" task',
+  ];
+  for (const main of [false, true]) for (const input of inputs) {
+    const f = fixture(); f.fs.listDir = async () => { assert.fail('invalid input must not scan'); };
+    const result = await f.commands.get('workspace-agent').handler({ agent: f.agent,
+      signal: new AbortController().signal, rawInput: `${main ? '--main ' : ''}${input}` });
+    assert.equal(result.kind, 'error', JSON.stringify(input)); assert.match(result.text, /用法：/);
+    assert.equal(f.getActivation(), undefined); assert.equal(f.followups.length, 0);
+  }
+});
+
 test('slash discovery uses the receiving agent filesystem, not a shared catalog', async () => {
   const f = fixture(); const command = f.commands.get('workspace-agents'); const signal = new AbortController().signal;
   await command.handler({ agent: f.agent, rawInput: '', signal });

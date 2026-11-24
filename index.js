@@ -108,20 +108,27 @@ export function apply(ctx) {
         for (const warning of role.warnings || []) lines.push(`警告：${warning}`);
       }
       for (const warning of value.warnings) lines.push(`警告：${warning}`);
-      lines.push('\n调用：/workspace-agent <角色ID> <完整独立任务>');
+      lines.push('\n在消息开头输入 @ 搜索并选择角色；固定命令：/workspace-agent <角色ID> <完整独立任务>');
       return { kind: 'success', text: lines.join('\n') };
     },
   }));
   ctx.effect(() => ctx.commands.register({
     name: 'workspace-agent',
     description: '指定工作区角色，默认创建标准模式子 agent；仅 --main 交给当前 agent',
-    input: { hint: '[--main] <角色ID> <任务>；默认子 agent；用 /workspace-agents 查看角色' },
+    input: { hint: '[--main] <角色ID> <任务>；默认子 agent；消息开头用 @ 选择角色，/workspace-agents 查看诊断' },
     handler: async ({ agent, rawInput, signal }) => {
       const main = /^\s*--main(?=\s|$)/.test(rawInput);
       const input = main ? rawInput.replace(/^\s*--main(?:\s+|$)/, '') : rawInput;
-      const match = /^\s*(\S+)\s+([\s\S]*\S)\s*$/.exec(input);
-      if (!match) return { kind: 'error', text: '用法：/workspace-agent [--main] <角色ID> <任务>；默认创建子 agent，--main 明确交给当前 agent。' };
-      const [, id, prompt] = match;
+      // A quoted ID is one JSON string, not a catalog-dependent longest match.
+      const match = /^\s*("(?:[^"\\]|\\[\s\S])*"|\S+)\s+([\s\S]*\S)\s*$/.exec(input);
+      const usage = { kind: 'error', text: '用法：/workspace-agent [--main] <角色ID> <任务>；含空白的角色ID使用 JSON 双引号字符串；默认创建子 agent，--main 明确交给当前 agent。' };
+      if (!match) return usage;
+      let [, id, prompt] = match;
+      if (id.startsWith('"')) {
+        try { id = JSON.parse(id); }
+        catch { return usage; }
+        if (typeof id !== 'string' || !id.trim()) return usage;
+      }
       if (main) {
         if (prompt.length > 65536) throw new Error('Task prompt or description is too long');
         const value = await list.execute({ id }, { agent, signal });

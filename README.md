@@ -2,7 +2,7 @@
 
 把已有 Claude/Codex 角色指令复用为 DSH 子 agent。无需复制角色文件，也无需启动外部 CLI。
 
-当前版本：`1.2.0`。新增输入框 `/` 菜单的 `local-agents` 分类，逐个显示工作区角色的文件名与描述。指定角色默认创建标准模式 subagent；显式 `--main` 才交给当前 agent。保留 `/workspace-agents` 和 `/workspace-agent` 作为诊断及兼容入口。
+当前版本：`1.2.0`。主入口为消息开头的 `@` 搜索菜单，按工作区角色文件名与描述搜索并选择角色。选择后使用 `@local-agent:<encoded ID>` 稳定 token；默认创建标准模式 subagent，显式 `--main` 才交给当前 agent。保留 `/workspace-agents` 和 `/workspace-agent` 作为固定诊断及兼容入口。
 
 ## 安装到 DSH
 
@@ -77,7 +77,9 @@ macOS / Linux 的示例路径为 `/home/your-name/plugins/dsh-discover-agents`�
 
 ## 使用
 
-在目标项目中打开标准模式会话，直接说「列出当前工作区的 agents」或「让 reviewer 检查这次改动」。插件在每个模型步骤前读取当前工作目录中的定义，向模型提供最多 40 条简短角色描述。
+在目标项目中打开标准模式会话，在消息开头输入 `@`，按角色文件名或描述搜索，从菜单选择后补全独立任务并发送。菜单选择只认领输入框，不立即执行；发送时才按所选完整角色 ID 调用。
+
+也可以直接说「列出当前工作区的 agents」或「让 reviewer 检查这次改动」，让模型通过工具选择是否委派。插件在每个模型步骤前读取当前工作目录中的定义，向模型提供最多 40 条简短角色描述。
 
 模型用 `list_workspace_agents` 查看全部角色及诊断，用 `run_workspace_agent` 委派任务。完成后 DSH 自动通知；已有 `list_agents` / `send_message` 可查看和继续交流。
 
@@ -97,18 +99,25 @@ macOS / Linux 的示例路径为 `/home/your-name/plugins/dsh-discover-agents`�
 
 不扫描整个仓库、不读取用户主目录的全局配置，不向上查找父目录。切换工作目录后，下个模型步骤及工具调用读取新目录。配置文件只读。
 
-## 输入框 `/` 命令
+## 输入框 `@` 搜索与调用
 
-插件启用并加载新版 Host 和 Client 代码后，在 DSH 输入框输入 `/`，菜单新增 **local-agents** 分类。每个角色直接显示文件名（不含扩展名）及对应描述。例如 `.claude/agents/review.md` 显示为 **review**，描述来自 YAML 的 `description`，不使用 `name` 替换文件名。
+插件启用并加载新版 Host 和 Client 代码后，在普通接收会话的消息开头输入 `@`，菜单显示 **local-agents** 工作区角色候选。可按文件名或描述模糊搜索；例如 `.claude/agents/review.md` 显示为 **review**，描述来自 YAML 的 `description`，不使用 `name` 替换文件名。选择 **review** 只认领输入框；填写完整任务并发送后，才直接创建所选角色的标准模式 subagent。
 
-选择 **review** 后输入完整任务并发送，插件直接创建该角色的标准模式 subagent。选择菜单项只认领输入框，不立即执行。也可以直接输入：
+选择后使用带来源及完整 ID 的稳定 token：`@local-agent:<encoded ID>`，其中 `<encoded ID>` 是完整角色 ID 的 URI 编码（`encodeURIComponent`），例如：
 
 ```text
-/review 检查本次 git diff
-/review --main 由当前 agent 检查本次 git diff
+@local-agent:claude%3Areview 检查本次 git diff
+@local-agent:claude%3Areview --main 由当前 agent 检查本次 git diff
+@local-agent:claude%3Areview%20team 检查本次 git diff
 ```
 
-菜单显示文件名，选择后输入框使用带来源的唯一 token，例如 `/local-agent:claude%3Areview`，以便保存草稿后仍准确恢复同一角色。无冲突且名称符合命令格式时，可以直接输入 `/review`；同名角色（包括 Claude/Codex 或嵌套目录重名）或与 DSH 命令重名时，没有短名入口，请从菜单选择。角色目录变动及会话工作目录变动，在下一次菜单查询时重新读取；提交时 Host 再次验证角色。仅在接收普通会话的输入框提供分类，不在远程子 agent 输入框混用主会话目录。
+手动输入完整稳定 token 也支持直接派发，草稿恢复保留同一个精确角色 ID。所有角色，包括 Claude/Codex 同名、嵌套目录重名、中文名和含空白 ID，都从菜单按完整 ID 选择，不提供短名调用入口。裸 `@review` **仅用于搜索候选，不自动认领或派发**；不会因存在同名角色就抢占文件、目录或会话的 `@` 引用。保留命名空间 token 格式错误或解码失败时明确报错。
+
+角色调用候选仅出现在**消息开头**，正文中的 `@` 和已 claim 任务的任务正文都不提供调用候选，不能通过任务正文中的 mention 切换角色。仅在普通接收会话提供角色候选，不在远程子 agent 输入框混用主会话目录。角色目录或会话工作目录变动，在下一次菜单查询时重新读取；提交时 Host 再次扫描并验证精确 ID。角色删除后报未找到，不改派同名角色、不回退主 agent。
+
+动态 `/` 角色分类、`/review` 等旧短名和旧 `/local-agent:…` 草稿恢复已移除，不注册 `/` 兼容 source。旧动态角色草稿需重新通过 `@` 菜单选择角色后提交。
+
+### 固定 `/workspace-*` 命令
 
 保留以下固定命令用于诊断和兼容：
 
@@ -122,13 +131,19 @@ macOS / Linux 的示例路径为 `/home/your-name/plugins/dsh-discover-agents`�
 /workspace-agents
 /workspace-agent claude:reviewer 检查本次 git diff，重点检查逻辑错误和缺失测试，返回具体位置。
 /workspace-agent --main claude:reviewer 由当前 agent 检查本次 git diff。
+/workspace-agent "claude:review team" 检查本次 git diff。
+/workspace-agent --main "codex:review team" 由当前 agent 检查本次 git diff。
 ```
+
+固定命令中的角色 ID 若含空白（包括空格），必须写成 **JSON 双引号字符串**，例如 `"claude:review team"`；引号和反斜杠按 JSON 规则转义（`\"`、`\\`），解码后使用完整原始 ID，不截断、修剪或猜测目录中最长的匹配。无空白 ID 可继续不加引号，也可使用 JSON 双引号形式；单引号不是 JSON 引号。畸形、未闭合的 JSON 字符串或缺少任务时返回用法错误，不创建子 agent，也不提交当前 agent 任务。
 
 路由只认命令中的显式 `--main` 选项，不分析任务正文中的自然语言来自动改路由。即使任务正文包含“主 agent”等字样，不带 `--main` 时仍创建 subagent。`--main` 会要求当前模型直接执行；这是任务指令，不是禁用该会话全部子 agent 工具的权限规则。当前 agent 正在执行其他任务时，follow-up 在后续独立回合处理，不打断当前回合。
 
 菜单角色和固定命令复用同一 Host 扫描及委派逻辑。不带 `--main` 的调用创建 subagent，失败会保留输入，不自动交给主 agent。列表及诊断是界面结果，不自动进入模型对话。子会话不继承当前对话，需要提供完整独立任务。目前不支持在角色命令中携带附件；请在任务正文中提供文件路径和必要信息。
 
-旧版插件只有模型工具，没有 slash 命令；因此旧版在 `/` 菜单中看不到 agent 入口并不代表发现失败。更新插件后需重启 DSH 加载新版 Host 代码，单独刷新网页不保证重新加载插件。若仍无入口，请检查插件是否启用、是否更新到包含本节功能的版本、是否存在激活错误。
+角色入口现在位于 `@` 搜索菜单，`/` 菜单不再显示动态角色；固定 `/workspace-*` 命令仍可用。更新插件后需确认 Host 和 Client 均已重新加载，建议重启 DSH 并新建会话；单独刷新网页不保证加载新版 Host。若无入口，请检查插件启用状态、代码版本、当前会话工作目录及激活错误。
+
+真实 GUI 验收需在重新加载后检查键盘/鼠标选择、稳定 token 草稿恢复、文件/目录/会话引用共存，以及一次只读角色任务；本次入口迁移未声称已完成真实 GUI 验证。
 
 ## 执行与边界
 
@@ -147,6 +162,6 @@ pnpm install --ignore-scripts
 pnpm test
 ```
 
-运行目标：DSH `0.2.2-rc.5`。格式依赖为 `yaml` 和 `smol-toml`，Host RPC 使用 DSH 的 `@deepseek-ai/dsh-typert-protocol` peer 依赖。Client 是可直接加载的 JavaScript artifact，无安装脚本或构建步骤。测试覆盖格式、扫描边界、权限错误、子 agent 委派、动态菜单、名称冲突、claim 生命周期及真实 Cordis 服务注册。
+运行目标：DSH `0.2.2-rc.5`。格式依赖为 `yaml` 和 `smol-toml`，Host RPC 使用 DSH 的 `@deepseek-ai/dsh-typert-protocol` peer 依赖。Client 是可直接加载的 JavaScript artifact，无安装脚本或构建步骤。测试覆盖格式、扫描边界、权限错误、子 agent 委派、`@` 搜索及稳定 token、引用共存、claim 生命周期，以及无 commands 服务依赖的真实 Cordis catalog 注册、调用者传递、取消和卸载。
 
 本地图标为原创 SVG；详情采用本 README，无额外预览图。

@@ -3,7 +3,6 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 export function installCatalogRemote(ctx, list) {
   const initializers = [];
   class WorkspaceAgentCatalog extends TypertRemoteService {
-    static inject = ['commands'];
     constructor(ctx) {
       super(ctx, 'discoverAgents');
       for (const initialize of initializers) initialize.call(this);
@@ -11,7 +10,7 @@ export function installCatalogRemote(ctx, list) {
     async catalog(agent, signal) {
       const value = await list.execute({}, { agent, signal });
       signal.throwIfAborted();
-      return { ...value, commands: this.ctx.commands.list(agent).map(command => command.name) };
+      return value;
     }
   }
   Remote(WorkspaceAgentCatalog.prototype.catalog, {
