@@ -2,7 +2,7 @@
 
 把已有 Claude/Codex 角色指令复用为 DSH 子 agent。无需复制角色文件，也无需启动外部 CLI。
 
-当前版本：`1.2.0`。主入口为消息开头的 `@` 搜索菜单，按工作区角色文件名与描述搜索并选择角色。选择后使用 `@local-agent:<encoded ID>` 稳定 token；默认创建标准模式 subagent，显式 `--main` 才交给当前 agent。保留 `/workspace-agents` 和 `/workspace-agent` 作为固定诊断及兼容入口。
+当前版本：`1.3.0`。主入口为消息开头的 `@` 搜索菜单，按工作区角色文件名与描述搜索并选择角色。选择后使用 `@local-agent:<encoded ID>` 稳定 token；默认创建标准模式 subagent，显式 `--main` 才交给当前 agent。保留 `/workspace-agents` 和 `/workspace-agent` 作为固定诊断及兼容入口。
 
 ## 安装到 DSH
 
